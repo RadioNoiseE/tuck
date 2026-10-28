@@ -1,23 +1,15 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include <ctype.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
-
-static bool verbose;
-#define print(...)                                                             \
-  do {                                                                         \
-    if (verbose) fprintf (stderr, __VA_ARGS__);                                \
-  } while (false)
-
-typedef uint64_t cpuset;
-#define CPU_MAX   64
-#define cpubit(n) ((cpuset) 1 << (n))
 
 static void usage (FILE *out, const char *name) {
   fprintf (out,
@@ -30,6 +22,16 @@ static void usage (FILE *out, const char *name) {
            "Copyright (C) 2026 Jing Huang.\n",
            name);
 }
+
+static bool verbose;
+#define print(...)                                                             \
+  do {                                                                         \
+    if (verbose) fprintf (stderr, __VA_ARGS__);                                \
+  } while (false)
+
+typedef uint64_t cpuset;
+#define CPU_MAX   64
+#define cpubit(n) ((cpuset) 1 << (n))
 
 static int number (const char **str, unsigned long *res) {
   if (!isdigit ((unsigned char) **str)) return -1;
@@ -106,6 +108,62 @@ static int spew (const char *path, const char *str) {
   close (fd);
 
   return n < 0 ? -1 : 0;
+}
+
+enum { CG_INIT, CG_ISOLATE, CG_RELEASE, CG_REMOVE };
+
+static int cgroup (int op, const char *str) {
+  char buf[64];
+
+  switch (op) {
+  case CG_INIT:
+    if (spew ("/sys/fs/cgroup/cgroup.subtree_control", "+cpuset")) {
+      fprintf (stderr, "error enabling cpuset controller\n");
+      return -1;
+    }
+    if (mkdir ("/sys/fs/cgroup/tuck", 0755) && errno != EEXIST) {
+      fprintf (stderr, "error creating control group\n");
+    }
+    if (spew ("/sys/fs/cgroup/tuck/cpuset.cpus.partition", "member") ||
+        spew ("/sys/fs/cgroup/tuck/cpuset.cpus", str)) {
+      fprintf (stderr, "error initializing control group\n");
+      return -1;
+    }
+    print ("initialized control group\n");
+    return 0;
+
+  case CG_ISOLATE:
+    if (spew ("/sys/fs/cgroup/tuck/cpuset.cpus.partition", "isolated")) {
+      fprintf (stderr, "error isolating parition root\n");
+      return -1;
+    }
+    if (slurp ("/sys/fs/cgroup/tuck/cpuset.cpus.partition", buf, sizeof buf) ||
+        strcmp (buf, "isolated\n")) {
+      fprintf (stderr, "invalid isolated partition root\n");
+      spew ("/sys/fs/cgroup/tuck/cpuset.cpus.partition", "member");
+      return -1;
+    }
+    print ("isolated partition root\n");
+    return 0;
+
+  case CG_RELEASE:
+    if (spew ("/sys/fs/cgroup/tuck/cpuset.cpus.partition", "member")) {
+      fprintf (stderr, "error releasing parition root\n");
+      return -1;
+    }
+    print ("released partition root\n");
+    return 0;
+
+  case CG_REMOVE:
+    if (rmdir ("/sys/fs/cgroup/tuck") && errno != ENOENT) {
+      fprintf (stderr, "error removing control group\n");
+      return -1;
+    }
+    print ("removed control group\n");
+    return 0;
+  }
+
+  return -1;
 }
 
 int main (int argc, char *argv[]) {
