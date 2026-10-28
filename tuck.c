@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include <ctype.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -12,7 +14,7 @@ static bool verbose;
   } while (false)
 
 typedef uint64_t cpuset;
-#define MAXCPU    64
+#define CPU_MAX   64
 #define cpubit(n) ((cpuset) 1 << (n))
 
 static void usage (FILE *out, const char *name) {
@@ -32,7 +34,7 @@ static int num (const char **str, unsigned long *res) {
 
   char *end;
   *res = strtoul (*str, &end, 10);
-  if (*res >= MAXCPU) return -1;
+  if (*res >= CPU_MAX) return -1;
 
   *str = end;
   return 0;
@@ -68,15 +70,15 @@ static int format (const cpuset set, char *buf, size_t len) {
   size_t c = 0;
 
   buf[0] = '\0';
-  for (a = 0; a < MAXCPU; a++) {
+  for (a = 0; a < CPU_MAX; a++) {
     if (!(set & cpubit (a))) continue;
-    for (b = a; b < MAXCPU - 1 && (set & cpubit (b + 1)); b++)
+    for (b = a; b < CPU_MAX - 1 && (set & cpubit (b + 1)); b++)
       ;
 
     if (a == b) c += snprintf (buf + c, len - c, "%s%d", c ? "," : "", a);
     else c += snprintf (buf + c, len - c, "%s%d-%d", c ? "," : "", a, b);
-    if (c >= len) return -1;
 
+    if (c >= len) return -1;
     a = b;
   }
 
@@ -84,8 +86,11 @@ static int format (const cpuset set, char *buf, size_t len) {
 }
 
 int main (int argc, char *argv[]) {
-  char *isolist = NULL;
-  int   opt;
+  char   buf[256];
+  char  *isostr = NULL;
+  cpuset isoset, allset;
+  FILE  *node;
+  int    opt;
 
   while (~(opt = getopt (argc, argv, "hi:v"))) {
     switch (opt) {
@@ -93,7 +98,7 @@ int main (int argc, char *argv[]) {
       usage (stdout, *argv);
       return 0;
     case 'i':
-      isolist = optarg;
+      isostr = optarg;
       break;
     case 'v':
       verbose = true;
@@ -103,9 +108,31 @@ int main (int argc, char *argv[]) {
     }
   }
 
-  if (optind != argc || !isolist) {
+  if (optind != argc || !isostr) {
   fail:
     usage (stderr, *argv);
+    return 1;
+  }
+
+  if (parse (isostr, &isoset)) {
+    fprintf (stderr, "error parsing (isolate) cpuset: %s\n", isostr);
+    return 1;
+  } else print ("(isolate) cpuset parsed: %ld\n", isoset);
+
+  if (!(node = fopen ("/sys/devices/system/cpu/online", "r")) ||
+      !fgets (buf, sizeof buf, node)) {
+    fprintf (stderr, "error reading (online) cpuset\n");
+    return 1;
+  }
+  fclose (node);
+
+  if (parse (buf, &allset)) {
+    fprintf (stderr, "error parsing (online) cpuset: %s\n", buf);
+    return 1;
+  } else print ("(online) cpuset parsed: %ld\n", allset);
+
+  if ((isoset & ~allset) || !(allset & ~isoset)) {
+    fprintf (stderr, "invalid (isolate) cpuset\n");
     return 1;
   }
 }
