@@ -7,8 +7,10 @@ typedef uint64_t cpuset;
 #define cpubit(n) ((cpuset) 1 << (n))
 
 static bool verbose;
-
-
+#define print(...)                                                             \
+  do {                                                                         \
+    if (verbose) fprintf (stderr, __VA_ARGS__);                                \
+  } while (false)
 
 static void usage (FILE *out, const char *name) {
   fprintf (out,
