@@ -4,7 +4,7 @@
 #include <unistd.h>
 
 typedef uint64_t cpuset;
-#define cpubit(n) (1ULL << (n))
+#define cpubit(n) ((cpuset) 1 << (n))
 
 static bool verbose;
 
