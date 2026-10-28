@@ -115,24 +115,29 @@ int main (int argc, char *argv[]) {
   }
 
   if (parse (isostr, &isoset)) {
-    fprintf (stderr, "error parsing (isolate) cpuset: %s\n", isostr);
+    fprintf (stderr, "error parsing isolate cpuset: %s\n", isostr);
     return 1;
-  } else print ("(isolate) cpuset parsed: %ld\n", isoset);
+  } else print ("parsed isolate cpuset: %ld\n", isoset);
 
   if (!(node = fopen ("/sys/devices/system/cpu/online", "r")) ||
       !fgets (buf, sizeof buf, node)) {
-    fprintf (stderr, "error reading (online) cpuset\n");
+    fprintf (stderr, "error reading online cpuset\n");
     return 1;
   }
   fclose (node);
 
   if (parse (buf, &allset)) {
-    fprintf (stderr, "error parsing (online) cpuset: %s\n", buf);
+    fprintf (stderr, "error parsing online cpuset: %s\n", buf);
     return 1;
-  } else print ("(online) cpuset parsed: %ld\n", allset);
+  } else print ("parsed online cpuset: %ld\n", allset);
 
   if ((isoset & ~allset) || !(allset & ~isoset)) {
-    fprintf (stderr, "invalid (isolate) cpuset\n");
+    fprintf (stderr, "invalid isolate cpuset\n");
+    return 1;
+  }
+
+  if (geteuid ()) {
+    fprintf (stderr, "must hold root privileges\n");
     return 1;
   }
 }
