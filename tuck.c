@@ -1,10 +1,12 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include <ctype.h>
+#include <fcntl.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 static bool verbose;
@@ -29,7 +31,7 @@ static void usage (FILE *out, const char *name) {
            name);
 }
 
-static int num (const char **str, unsigned long *res) {
+static int number (const char **str, unsigned long *res) {
   if (!isdigit ((unsigned char) **str)) return -1;
 
   char *end;
@@ -45,11 +47,11 @@ static int parse (const char *str, cpuset *set) {
   cpuset        c = 0;
 
   for (;;) {
-    if (num (&str, &a)) return -1;
+    if (number (&str, &a)) return -1;
     b = a;
     if (*str == '-') {
       str++;
-      if (num (&str, &b) || b < a) return -1;
+      if (number (&str, &b) || b < a) return -1;
     }
     for (; a <= b; a++)
       c |= cpubit (a);
@@ -85,11 +87,31 @@ static int format (const cpuset set, char *buf, size_t len) {
   return 0;
 }
 
+static int slurp (const char *path, char *buf, int len) {
+  int fd = open (path, O_RDONLY);
+  if (fd < 0) return -1;
+
+  ssize_t n = read (fd, buf, len - 1);
+  close (fd);
+
+  if (n < 0) return -1;
+  return buf[n] = '\0';
+}
+
+static int spew (const char *path, const char *str) {
+  int fd = open (path, O_WRONLY);
+  if (fd < 0) return -1;
+
+  ssize_t n = write (fd, str, strlen (str));
+  close (fd);
+
+  return n < 0 ? -1 : 0;
+}
+
 int main (int argc, char *argv[]) {
   char   buf[256];
   char  *isostr = NULL;
   cpuset isoset, allset;
-  FILE  *node;
   int    opt;
 
   while (~(opt = getopt (argc, argv, "hi:v"))) {
@@ -119,12 +141,10 @@ int main (int argc, char *argv[]) {
     return 1;
   } else print ("parsed isolate cpuset: %ld\n", isoset);
 
-  if (!(node = fopen ("/sys/devices/system/cpu/online", "r")) ||
-      !fgets (buf, sizeof buf, node)) {
+  if (slurp ("/sys/devices/system/cpu/online", buf, 256)) {
     fprintf (stderr, "error reading online cpuset\n");
     return 1;
   }
-  fclose (node);
 
   if (parse (buf, &allset)) {
     fprintf (stderr, "error parsing online cpuset: %s\n", buf);
