@@ -124,6 +124,7 @@ static int cgroup (int op, const char *str) {
     }
     if (mkdir ("/sys/fs/cgroup/tuck", 0755) && errno != EEXIST) {
       fprintf (stderr, "error creating control group\n");
+      return -1;
     }
     if (spew ("/sys/fs/cgroup/tuck/cpuset.cpus.partition", "member") ||
         spew ("/sys/fs/cgroup/tuck/cpuset.cpus", str)) {
@@ -135,7 +136,7 @@ static int cgroup (int op, const char *str) {
 
   case CG_ISOLATE:
     if (spew ("/sys/fs/cgroup/tuck/cpuset.cpus.partition", "isolated")) {
-      fprintf (stderr, "error isolating parition root\n");
+      fprintf (stderr, "error isolating partition root\n");
       return -1;
     }
     if (slurp ("/sys/fs/cgroup/tuck/cpuset.cpus.partition", buf, sizeof buf) ||
@@ -149,7 +150,7 @@ static int cgroup (int op, const char *str) {
 
   case CG_RELEASE:
     if (spew ("/sys/fs/cgroup/tuck/cpuset.cpus.partition", "member")) {
-      fprintf (stderr, "error releasing parition root\n");
+      fprintf (stderr, "error releasing partition root\n");
       return -1;
     }
     print ("released partition root\n");
@@ -167,16 +168,16 @@ static int cgroup (int op, const char *str) {
   return -1;
 }
 
-static void bye (void) {
-  cgroup (CG_REMOVE, NULL);
-  print ("bye\n");
-}
-
 static volatile sig_atomic_t done;
 
-static void onsig (int sig) {
+static void interrupt (int sig) {
   (void) sig;
   done = 1;
+}
+
+static void bye (void) {
+  cgroup (CG_REMOVE, NULL);
+  print ("normal process termination\n");
 }
 
 int main (int argc, char *argv[]) {
@@ -232,14 +233,15 @@ int main (int argc, char *argv[]) {
     return 1;
   }
 
-  if (cgroup (CG_INIT, isostr)) return 1;
-  atexit (bye);
-
-  struct sigaction sigact = {.sa_handler = onsig};
+  struct sigaction sigact = {.sa_handler = interrupt};
 
   sigaction (SIGHUP, &sigact, NULL);
   sigaction (SIGINT, &sigact, NULL);
+  sigaction (SIGSTOP, &sigact, NULL);
   sigaction (SIGTERM, &sigact, NULL);
+
+  if (cgroup (CG_INIT, isostr)) return 1;
+  atexit (bye);
 
   if (cgroup (CG_ISOLATE, NULL)) return 1;
 
