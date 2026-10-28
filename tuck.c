@@ -3,6 +3,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -166,6 +167,18 @@ static int cgroup (int op, const char *str) {
   return -1;
 }
 
+static void bye (void) {
+  cgroup (CG_REMOVE, NULL);
+  print ("bye\n");
+}
+
+static volatile sig_atomic_t done;
+
+static void onsig (int sig) {
+  (void) sig;
+  done = 1;
+}
+
 int main (int argc, char *argv[]) {
   char   buf[256];
   char  *isostr = NULL;
@@ -215,7 +228,23 @@ int main (int argc, char *argv[]) {
   }
 
   if (geteuid ()) {
-    fprintf (stderr, "must hold root privileges\n");
+    fprintf (stderr, "must run as root\n");
     return 1;
   }
+
+  if (cgroup (CG_INIT, isostr)) return 1;
+  atexit (bye);
+
+  struct sigaction sigact = {.sa_handler = onsig};
+
+  sigaction (SIGHUP, &sigact, NULL);
+  sigaction (SIGINT, &sigact, NULL);
+  sigaction (SIGTERM, &sigact, NULL);
+
+  if (cgroup (CG_ISOLATE, NULL)) return 1;
+
+  while (!done)
+    pause ();
+
+  return 0;
 }
