@@ -1,8 +1,10 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include <ctype.h>
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <inttypes.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -168,16 +170,53 @@ static int cgroup (int op, const char *str) {
   return -1;
 }
 
+static int irq (cpuset set) {
+  char           buf[256], *str;
+  DIR           *a;
+  int            moved, skipped;
+  struct dirent *b;
+
+  moved = skipped = 0;
+
+  format (set, buf, sizeof buf);
+  str = strdup (buf);
+  if (!str) {
+    fprintf (stderr, "error allocating memory for cpuset\n");
+    return -1;
+  }
+
+  snprintf (buf, sizeof buf, "%" PRIx64, set);
+  if (spew ("/proc/irq/default_smp_affinity", buf)) {
+    fprintf (stderr, "error setting default irq affinity\n");
+    return -1;
+  }
+
+  if (!(a = opendir ("/proc/irq"))) {
+    fprintf (stderr, "error opening /proc/irq\n");
+    return -1;
+  }
+
+  while ((b = readdir (a))) {
+    if (!isdigit ((unsigned char) b->d_name[0])) continue;
+
+    snprintf (buf, sizeof buf, "/proc/irq/%s/smp_affinity_list", b->d_name);
+    if (spew (buf, str)) {
+      print ("error assigning cpuset %s to irq %s\n", str, b->d_name);
+      skipped++;
+    } else moved++;
+  }
+  closedir (a);
+
+  print ("assigned cpuset %s to %d irqs (%d skipped)\n", str, moved, skipped);
+  free (str);
+  return 0;
+}
+
 static volatile sig_atomic_t done;
 
 static void interrupt (int sig) {
   (void) sig;
   done = 1;
-}
-
-static void bye (void) {
-  cgroup (CG_REMOVE, NULL);
-  print ("normal process termination\n");
 }
 
 int main (int argc, char *argv[]) {
@@ -211,7 +250,7 @@ int main (int argc, char *argv[]) {
   if (parse (isostr, &isoset)) {
     fprintf (stderr, "error parsing isolate cpuset: %s\n", isostr);
     return 1;
-  } else print ("parsed isolate cpuset: %ld\n", isoset);
+  } else print ("parsed isolate cpuset: %" PRIx64 "\n", isoset);
 
   if (slurp ("/sys/devices/system/cpu/online", buf, 256)) {
     fprintf (stderr, "error reading online cpuset\n");
@@ -221,7 +260,7 @@ int main (int argc, char *argv[]) {
   if (parse (buf, &allset)) {
     fprintf (stderr, "error parsing online cpuset: %s\n", buf);
     return 1;
-  } else print ("parsed online cpuset: %ld\n", allset);
+  } else print ("parsed online cpuset: %" PRIx64 "\n", allset);
 
   if ((isoset & ~allset) || !(allset & ~isoset)) {
     fprintf (stderr, "invalid isolate cpuset\n");
@@ -237,16 +276,18 @@ int main (int argc, char *argv[]) {
 
   sigaction (SIGHUP, &sigact, NULL);
   sigaction (SIGINT, &sigact, NULL);
-  sigaction (SIGSTOP, &sigact, NULL);
+  sigaction (SIGQUIT, &sigact, NULL);
   sigaction (SIGTERM, &sigact, NULL);
 
   if (cgroup (CG_INIT, isostr)) return 1;
-  atexit (bye);
-
-  if (cgroup (CG_ISOLATE, NULL)) return 1;
+  if (cgroup (CG_ISOLATE, NULL) || irq (allset & ~isoset)) goto done;
 
   while (!done)
     pause ();
 
+done:
+  print ("normal process termination\n");
+  irq (allset);
+  cgroup (CG_REMOVE, NULL);
   return 0;
 }
