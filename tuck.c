@@ -220,47 +220,30 @@ static void interrupt (int sig) {
   done = 1;
 }
 
-static int sample (cpuset all, cpuset iso, int *avg, int *max) {
+static int sample (void) {
   char                      buf[256];
-  FILE                     *f;
-  int                       a, b, cpu;
-  static unsigned long long pb[CPU_MAX], pt[CPU_MAX];
-  unsigned long long        c[8], busy, total, db, dt, sb, st;
+  FILE                     *n;
+  int                       a;
+  static unsigned long long b, c;
+  unsigned long long        d[8], e, f, g, h;
 
-  if (!(f = fopen ("/proc/stat", "r"))) return -1;
-  *max = 0;
-  sb = st = 0;
+  if (!(n = fopen ("/proc/stat", "r"))) return -1;
+  a = fgets (buf, sizeof buf, n) &&
+      sscanf (buf, "cpu %llu %llu %llu %llu %llu %llu %llu %llu", &d[0], &d[1],
+              &d[2], &d[3], &d[4], &d[5], &d[6], &d[7]) == 8;
+  fclose (n);
+  if (!a) return -1;
 
-  while (fgets (buf, sizeof buf, f)) {
-    if (strncmp (buf, "cpu", 3)) break;
+  for (f = 0, a = 0; a < 8; a++)
+    f += d[a];
+  e = f - d[3] - d[4];
 
-    if (buf[3] == ' ') continue;
-    if (sscanf (buf + 3, "%d %llu %llu %llu %llu %llu %llu %llu %llu", &cpu,
-                &c[0], &c[1], &c[2], &c[3], &c[4], &c[5], &c[6], &c[7]) != 9 ||
-        cpu < 0 || cpu >= CPU_MAX)
-      continue;
+  g = e - b;
+  h = f - c;
+  b = e;
+  c = f;
 
-    for (total = 0, a = 0; a < 8; a++)
-      total += c[a];
-    busy = total - c[3] - c[4];
-
-    db = busy - pb[cpu];
-    dt = total - pt[cpu];
-
-    pb[cpu] = busy;
-    pt[cpu] = total;
-
-    if (!dt || dt == total) continue;
-    b = 100 * db / dt;
-
-    if (all & cpubit (cpu)) sb += db, st += dt;
-    if (((all & ~iso) & cpubit (cpu)) && b > *max) *max = b;
-  }
-
-  *avg = st ? 100 * sb / st : 0;
-
-  fclose (f);
-  return 0;
+  return h && h != f ? 100 * g / h : 0;
 }
 
 static int psi (unsigned stall, unsigned window) {
@@ -282,7 +265,7 @@ int main (int argc, char *argv[]) {
   bool   flag = false;
   char   buf[256], *isostr = NULL;
   cpuset isoset, allset;
-  int    opt, pfd, avg, max, tick = 0;
+  int    opt, pfd, avg, tick = 0;
 
   while (~(opt = getopt (argc, argv, "hi:v"))) {
     switch (opt) {
@@ -347,7 +330,7 @@ int main (int argc, char *argv[]) {
 
   struct pollfd fd = {.fd = pfd, .events = POLLPRI};
 
-  sample (allset, isoset, &avg, &max);
+  sample ();
 
   while (!done) {
     fd.revents = 0;
@@ -357,22 +340,22 @@ int main (int argc, char *argv[]) {
     if (flag) {
       if (!(fd.revents & POLLPRI)) continue;
 
-      fprintf (stdout, "leaving after psi event triggered\n");
+      fprintf (stderr, "leaving after psi event triggered\n");
       flag = false;
       tick = 0;
 
       if (irq (allset) || cgroup (CG_RELEASE, NULL)) break;
-      sample (allset, isoset, &avg, &max);
+      sample ();
       continue;
     }
 
-    sample (allset, isoset, &avg, &max);
+    if ((avg = sample ()) < 0) break;
+    print ("sampled load average %d%%\n", avg);
 
     tick = avg < 5 ? tick + 1 : 0;
-    print ("sampled load average %d%%\n", avg);
     if (tick < 5) continue;
 
-    fprintf (stdout, "entering after system quiet for 5 ticks\n");
+    fprintf (stderr, "entering after system quiet for 5 ticks\n");
     flag = true;
 
     if (cgroup (CG_ISOLATE, NULL) || irq (allset & ~isoset)) break;
