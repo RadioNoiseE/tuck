@@ -189,11 +189,13 @@ static int irq (cpuset set) {
   snprintf (buf, sizeof buf, "%" PRIx64, set);
   if (spew ("/proc/irq/default_smp_affinity", buf)) {
     fprintf (stderr, "error setting default irq affinity\n");
+    free (str);
     return -1;
   }
 
   if (!(a = opendir ("/proc/irq"))) {
     fprintf (stderr, "error opening /proc/irq\n");
+    free (str);
     return -1;
   }
 
@@ -323,7 +325,7 @@ int main (int argc, char *argv[]) {
 
   if (cgroup (CG_INIT, isostr)) return 1;
 
-  if ((pfd = psi (2e5, 1e6)) < 0) {
+  if ((pfd = psi (5e5, 2e6)) < 0) {
     fprintf (stderr, "error creating psi trigger\n");
     goto done;
   }
@@ -355,7 +357,7 @@ int main (int argc, char *argv[]) {
     tick = avg < 5 ? tick + 1 : 0;
     if (tick < 5) continue;
 
-    fprintf (stderr, "entering after system quiet for 5 ticks\n");
+    fprintf (stderr, "entering after system quiet for %d ticks\n", tick);
     flag = true;
 
     if (cgroup (CG_ISOLATE, NULL) || irq (allset & ~isoset)) break;
