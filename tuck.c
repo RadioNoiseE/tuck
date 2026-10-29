@@ -279,9 +279,10 @@ static int psi (unsigned stall, unsigned window) {
 }
 
 int main (int argc, char *argv[]) {
+  bool   flag = false;
   char   buf[256], *isostr = NULL;
   cpuset isoset, allset;
-  int    opt, pfd, avg, max;
+  int    opt, pfd, avg, max, tick = 0;
 
   while (~(opt = getopt (argc, argv, "hi:v"))) {
     switch (opt) {
@@ -338,23 +339,44 @@ int main (int argc, char *argv[]) {
   sigaction (SIGTERM, &sigact, NULL);
 
   if (cgroup (CG_INIT, isostr)) return 1;
-  if (cgroup (CG_ISOLATE, NULL) || irq (allset & ~isoset)) goto done;
 
-  if ((pfd = psi (1e5, 1e6)) < 0) {
+  if ((pfd = psi (2e5, 1e6)) < 0) {
     fprintf (stderr, "error creating psi trigger\n");
     goto done;
   }
 
   struct pollfd fd = {.fd = pfd, .events = POLLPRI};
+
   sample (allset, isoset, &avg, &max);
 
   while (!done) {
-    int res = poll (&fd, 1, 1e3);
-    if (res < 0 || (fd.revents & POLLERR)) break;
+    fd.revents = 0;
+    if (poll (&fd, flag ? 1 : 0, flag ? -1 : 1e3) < 0 || (fd.revents & POLLERR))
+      break;
+
+    if (flag) {
+      if (!(fd.revents & POLLPRI)) continue;
+
+      fprintf (stdout, "leaving after psi event triggered\n");
+      flag = false;
+      tick = 0;
+
+      if (irq (allset) || cgroup (CG_RELEASE, NULL)) break;
+      sample (allset, isoset, &avg, &max);
+      continue;
+    }
 
     sample (allset, isoset, &avg, &max);
-    print ("all %3d%%, keep max %3d%% (%s)\n", avg, max,
-           fd.revents & POLLPRI ? "psi" : "timeout");
+
+    tick = avg < 5 ? tick + 1 : 0;
+    print ("sampled load average %d%%\n", avg);
+    if (tick < 5) continue;
+
+    fprintf (stdout, "entering after system quiet for 5 ticks\n");
+    flag = true;
+
+    if (cgroup (CG_ISOLATE, NULL) || irq (allset & ~isoset)) break;
+    poll (&fd, 1, 0);
   }
   close (pfd);
 
