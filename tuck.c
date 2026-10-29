@@ -219,9 +219,66 @@ static void interrupt (int sig) {
   done = 1;
 }
 
+static int sample (cpuset all, cpuset iso, int *avg, int *max) {
+  char                      buf[256];
+  FILE                     *f;
+  int                       a, b, cpu;
+  static unsigned long long pb[CPU_MAX], pt[CPU_MAX];
+  unsigned long long        c[8], busy, total, db, dt, sb, st;
+
+  if (!(f = fopen ("/proc/stat", "r"))) return -1;
+  *max = 0;
+  sb = st = 0;
+
+  while (fgets (buf, sizeof buf, f)) {
+    if (strncmp (buf, "cpu", 3)) break;
+
+    if (buf[3] == ' ') continue;
+    if (sscanf (buf + 3, "%d %llu %llu %llu %llu %llu %llu %llu %llu", &cpu,
+                &c[0], &c[1], &c[2], &c[3], &c[4], &c[5], &c[6], &c[7]) != 9 ||
+        cpu < 0 || cpu >= CPU_MAX)
+      continue;
+
+    for (total = 0, a = 0; a < 8; a++)
+      total += c[a];
+    busy = total - c[3] - c[4];
+
+    db = busy - pb[cpu];
+    dt = total - pt[cpu];
+
+    pb[cpu] = busy;
+    pt[cpu] = total;
+
+    if (!dt || dt == total) continue;
+    b = 100 * db / dt;
+
+    if (all & cpubit (cpu)) sb += db, st += dt;
+    if (((all & ~iso) & cpubit (cpu)) && b > *max) *max = b;
+  }
+
+  *avg = st ? 100 * sb / st : 0;
+
+  fclose (f);
+  return 0;
+}
+
+static int psi (unsigned stall, unsigned window) {
+  char buf[256];
+  int  fd, a;
+
+  if ((fd = open ("/proc/pressure/cpu", O_RDWR | O_NONBLOCK)) < 0) return -1;
+  a = snprintf (buf, sizeof buf, "some %u %u", stall, window);
+
+  if (write (fd, buf, a + 1) < 0) {
+    close (fd);
+    return -1;
+  }
+
+  return fd;
+}
+
 int main (int argc, char *argv[]) {
-  char   buf[256];
-  char  *isostr = NULL;
+  char   buf[256], *isostr = NULL;
   cpuset isoset, allset;
   int    opt;
 
