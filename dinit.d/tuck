@@ -1,0 +1,4 @@
+type = process
+command = /usr/local/bin/tuck -i 0-11
+log-type = buffer
+depends-on: local.target
