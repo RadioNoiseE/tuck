@@ -325,7 +325,7 @@ int main (int argc, char *argv[]) {
 
   if (cgroup (CG_INIT, isostr)) return 1;
 
-  if ((pfd = psi (5e5, 2e6)) < 0) {
+  if ((pfd = psi (2e5, 1e6)) < 0) {
     fprintf (stderr, "error creating psi trigger\n");
     cgroup (CG_REMOVE, NULL);
     return 1;
