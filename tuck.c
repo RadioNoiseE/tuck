@@ -20,7 +20,7 @@ static void usage (FILE *out, const char *name) {
            "Usage: %s [options...]\n"
            "\n"
            " -h            Display this help message and quit.\n"
-           " -i <cpulist>  A list of power demanding cpu to isolate.\n"
+           " -i <cpulist>  CPUs to switch off while idle.\n"
            " -v            Output more verbose information.\n"
            "\n"
            "Copyright (C) 2026 Jing Huang.\n",
@@ -327,7 +327,8 @@ int main (int argc, char *argv[]) {
 
   if ((pfd = psi (5e5, 2e6)) < 0) {
     fprintf (stderr, "error creating psi trigger\n");
-    goto done;
+    cgroup (CG_REMOVE, NULL);
+    return 1;
   }
 
   struct pollfd fd = {.fd = pfd, .events = POLLPRI};
@@ -363,10 +364,10 @@ int main (int argc, char *argv[]) {
     if (cgroup (CG_ISOLATE, NULL) || irq (allset & ~isoset)) break;
     poll (&fd, 1, 0);
   }
-  close (pfd);
 
-done:
   print ("normal process termination\n");
+
+  close (pfd);
   irq (allset);
   cgroup (CG_REMOVE, NULL);
   return 0;
