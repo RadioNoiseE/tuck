@@ -1,0 +1,73 @@
+.Dd October 31, 2026
+.Dt TUCK 8
+.Os
+.Sh NAME
+.Nm tuck
+.Nd tuck an idle system onto the low-power cores
+.Sh SYNOPSIS
+.Nm
+.Op Fl hv
+.Op Fl i Ar cpulist
+.Sh DESCRIPTION
+The
+.Nm
+daemon saves power on systems with hybrid processors.  When the system
+is nearly idle, it confines all tasks and movable interrupts to a few
+low-power efficiency cores.  As soon as those low-power cores become a
+bottleneck,
+.Nm
+gives every core back.
+.Pp
+To confine the system,
+.Nm
+creates a control group and assigns it with the CPUs in
+.Ar cpulist ,
+then turns it into an isolated cpuset partition.  The kernel will then
+remove those CPUs from every other control group, so that all tasks
+run on the remaining CPUs.  It also points the affinity of every
+movable interrupt, and the default affinity of new ones, at the
+remaining CPUs.
+.Pp
+.Nm
+enters this idle state after the load average over all online CPUs are
+monitered to be under 5% for 5 consecutive 1s samples.  It leaves this
+state when the kernel reports through a pressure stall information
+trigger that tasks waited for a CPU for at least 200ms within any 1s
+window.
+.Bl -tag
+.It Fl h
+Print the help message and exit.
+.It Fl i Ar cpulist
+Configure the CPUs to switch off while the system is idle, in the
+kernel's cpulist format.
+.It Fl v
+Print every sample and evert step taken to standard error.
+.El
+.Sh EXIT STATUS
+.Bl -tag
+.It 0
+Normal termination after a signal.
+.It 1
+Invalid option(s) or
+.Ar cpulist ,
+or failure to set up the control group.
+.El
+.Sh CAVEATS
+Interrupt affinities are restored to all online CPUs, not to their
+previous values.  Affinities set by hand or by a driver are lost after
+the first confinement.
+.Pp
+Interrupts whose affinity are managed by the kernel itself, such as
+NVMe queues, cannot be moved and are skipped.  They will only fire
+when a task submits work from their CPU, which cannot happen when
+confined.
+.Pp
+If another control group requests some of the CPUs in
+.Ar cpulist ,
+the partition becomes invalid.
+.Pp
+Tools that bind themselves to each CPU in turn, such as
+.Xr turbostat 8 ,
+cannot reach the switched-off CPUs while the system is confined.
+.Sh AUTHORS
+.An Jing Huang Aq Mt rne.kou@icloud.com
