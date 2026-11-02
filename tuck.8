@@ -29,8 +29,8 @@ movable interrupt, and the default affinity of new ones, at the
 remaining CPUs.
 .Pp
 .Nm
-enters this idle state after the load average over all online CPUs are
-monitered to be under 5% for 5 consecutive 1s samples.  It leaves this
+enters this idle state after the load average over all online CPUs is
+monitored to be under 5% for 5 consecutive 1s samples.  It leaves this
 state when the kernel reports through a pressure stall information
 trigger that tasks waited for a CPU for at least 200ms within any 1s
 window.
@@ -41,7 +41,7 @@ Print the help message and exit.
 Configure the CPUs to switch off while the system is idle, in the
 kernel's cpulist format.
 .It Fl v
-Print every sample and evert step taken to standard error.
+Print every sample and every step taken to standard error.
 .El
 .Sh EXIT STATUS
 .Bl -tag
@@ -57,7 +57,7 @@ Interrupt affinities are restored to all online CPUs, not to their
 previous values.  Affinities set by hand or by a driver are lost after
 the first confinement.
 .Pp
-Interrupts whose affinity are managed by the kernel itself, such as
+Interrupts whose affinity is managed by the kernel itself, such as
 NVMe queues, cannot be moved and are skipped.  They will only fire
 when a task submits work from their CPU, which cannot happen when
 confined.
